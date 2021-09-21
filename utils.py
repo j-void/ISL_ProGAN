@@ -53,7 +53,7 @@ def gradient_penalty(critic, real, fake, alpha, train_step, device="cpu"):
 
 
 def save_checkpoint(model, optimizer, filename="my_checkpoint.pth"):
-    print("=> Saving checkpoint")
+    #print("=> Saving checkpoint")
     checkpoint = {
         "state_dict": model.state_dict(),
         "optimizer": optimizer.state_dict(),

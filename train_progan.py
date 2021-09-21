@@ -99,7 +99,7 @@ def main():
                     util.plot_to_tensorboard(writer, loss_critic.item(), loss_gen.item(), real.detach(), fixed_fakes.detach(), tensorboard_step)
                     tensorboard_step += 1
                 
-                if batch_idx % 1000 == 0:
+                if batch_idx % 500 == 0:
                     util.save_checkpoint(gen, opt_gen, filename="netG.pth")
                     util.save_checkpoint(critic, opt_critic, filename="netD.pth")
                     util.save_train_state(image_size, epoch+1, num_epochs, batch_idx)
@@ -107,6 +107,7 @@ def main():
             
             util.save_checkpoint(gen, opt_gen, filename="netG.pth")
             util.save_checkpoint(critic, opt_critic, filename="netD.pth")
+            util.save_train_state(image_size, epoch+1, num_epochs, batch_idx)
 
         step += 1  # progress to the next img size
 
