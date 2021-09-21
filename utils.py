@@ -88,8 +88,8 @@ def generate_examples(gen, steps, truncation=0.7, n=100):
     gen.train()
     
 def save_train_state(image_size, epoch, num_epochs, idx):
-    output = "Current Image size: "+ str(image_size) +"x"+str(image_size*2) + ", Epoch: (" + str(epoch) + "/" + str(num_epochs) + " : " + str(idx) + ")\n"
+    output = "Current Image size: "+ str(image_size) +"x"+str(image_size*2) + ", Epoch: (" + str(epoch) + "/" + str(num_epochs) + " : " + str(idx) + ")"
     print(output)
     with open(os.path.join(config.checkpoint_dir, config.name, "iter.txt"), 'w') as f:
-        f.write(output)
+        f.write(output+'\n')
 
