@@ -15,7 +15,7 @@ class  AlignedDatset(data.Dataset):
         self.label_dir = label_dir
         self.labels = os.listdir(label_dir)       
         
-        print(os.listdir(self.image_dir))
+        #print(os.listdir(self.image_dir))
         
     def __len__(self):
         return len(self.label_dir)
