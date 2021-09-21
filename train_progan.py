@@ -22,7 +22,7 @@ def main():
     
     gen = Generator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.device)
     
-    critic = Discriminator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.device)
+    critic = Discriminator(config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.device)
 
     # initialize optimizers and scalers for FP16 training
     opt_gen = optim.Adam(gen.parameters(), lr=config.LEARNING_RATE, betas=(0.0, 0.99))
