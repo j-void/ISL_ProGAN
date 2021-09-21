@@ -23,8 +23,8 @@ Z_DIM = 512  # should be 512 in original paper
 IN_CHANNELS = 512  # should be 512 in original paper
 CRITIC_ITERATIONS = 1
 LAMBDA_GP = 10
-PROGRESSIVE_EPOCHS = [30, 40, 50, 60, 70, 80, 90, 100]#[30] * len(BATCH_SIZES)
-FIXED_NOISE = torch.randn(8, Z_DIM, 1, 2).to(device)
+PROGRESSIVE_EPOCHS = [30, 40, 50, 60, 70, 80, 90, 100] # [30] * len(BATCH_SIZES)
+FIXED_NOISE = torch.randn(1, Z_DIM, 1, 2).to(device)
 START_TRAIN_AT_IMG_SIZE = 4
 LOAD_MODEL = False
 

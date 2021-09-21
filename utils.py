@@ -20,7 +20,7 @@ def get_dataset(image_dir, label_dir, batch_size, nWorkers, image_size, isTrain 
 
 def plot_to_tensorboard(writer, loss_critic, loss_gen, real, fake, tensorboard_step):
     writer.add_scalar("Loss Critic", loss_critic, global_step=tensorboard_step)
-
+    writer.add_scalar("Loss Generator", loss_gen, global_step=tensorboard_step)
     with torch.no_grad():
         # take out (up to) 8 examples to plot
         img_grid_real = torchvision.utils.make_grid(real[:8], normalize=True)

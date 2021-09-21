@@ -95,8 +95,9 @@ def main():
 
                 if batch_idx % 500 == 0:
                     with torch.no_grad():
-                        fixed_fakes = gen(config.FIXED_NOISE, alpha, step) * 0.5 + 0.5
+                        fixed_fakes = gen(config.FIXED_NOISE, alpha, step)
                     util.plot_to_tensorboard(writer, loss_critic.item(), loss_gen.item(), real.detach(), fixed_fakes.detach(), tensorboard_step)
+                    print(f'G_GAN_Loss = {loss_gen.item()}, D_GAN_Loss = {loss_critic.item()}')
                     tensorboard_step += 1
                 
                 if batch_idx % 500 == 0:
