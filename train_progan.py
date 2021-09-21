@@ -5,7 +5,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import utils as util
-from model import Discriminator, Generator
+from model import ProGAN_Discriminator, ProGAN_Generator
 from math import log2
 import config
 import os
@@ -20,9 +20,9 @@ def main():
     if not os.path.exists(os.path.join(config.checkpoint_dir, config.name)):
         os.makedirs(os.path.join(config.checkpoint_dir, config.name))
     
-    gen = Generator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.device)
+    gen = ProGAN_Generator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.device)
     
-    critic = Discriminator(config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.device)
+    critic = ProGAN_Discriminator(config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.device)
 
     # initialize optimizers and scalers for FP16 training
     opt_gen = optim.Adam(gen.parameters(), lr=config.LEARNING_RATE, betas=(0.0, 0.99))

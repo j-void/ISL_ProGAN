@@ -53,9 +53,9 @@ class ConvBlock(nn.Module):
         return x
 
 
-class Generator(nn.Module):
+class ProGAN_Generator(nn.Module):
     def __init__(self, z_dim, in_channels, img_channels=3):
-        super(Generator, self).__init__()
+        super(ProGAN_Generator, self).__init__()
 
         # initial takes 1x1 -> 4x4 ##changing 1x2 -> 4x8
         self.initial = nn.Sequential(
@@ -103,9 +103,9 @@ class Generator(nn.Module):
         return self.fade_in(alpha, final_upscaled, final_out)
 
 
-class Discriminator(nn.Module):
+class ProGAN_Discriminator(nn.Module):
     def __init__(self, in_channels, img_channels=3):
-        super(Discriminator, self).__init__()
+        super(ProGAN_Discriminator, self).__init__()
         self.prog_blocks, self.rgb_layers = nn.ModuleList([]), nn.ModuleList([])
         self.leaky = nn.LeakyReLU(0.2)
 
@@ -179,8 +179,8 @@ class Discriminator(nn.Module):
 if __name__ == "__main__":
     Z_DIM = 32
     IN_CHANNELS = 512
-    gen = Generator(Z_DIM, IN_CHANNELS, img_channels=3)
-    critic = Discriminator(IN_CHANNELS, img_channels=3)
+    gen = ProGAN_Generator(Z_DIM, IN_CHANNELS, img_channels=3)
+    critic = ProGAN_Discriminator(IN_CHANNELS, img_channels=3)
     
     for img_size in [4, 8, 16, 32, 64, 128, 256, 512]:
         num_steps = int(log2(img_size/4))

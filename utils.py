@@ -65,12 +65,13 @@ def load_checkpoint(filename, model, optimizer, lr):
     print("=> Loading checkpoint")
     checkpoint = torch.load(os.path.join(config.checkpoint_dir, config.name, filename), map_location="cuda")
     model.load_state_dict(checkpoint["state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer"])
+    if optimizer != None:
+        optimizer.load_state_dict(checkpoint["optimizer"])
 
-    # If we don't do this then it will just have learning rate of old checkpoint
-    # and it will lead to many hours of debugging \:
-    for param_group in optimizer.param_groups:
-        param_group["lr"] = lr
+        # If we don't do this then it will just have learning rate of old checkpoint
+        # and it will lead to many hours of debugging \:
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = lr
 
 
 def generate_examples(gen, steps, truncation=0.7, n=100):
