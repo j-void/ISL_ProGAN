@@ -15,6 +15,8 @@ class  AlignedDatset(data.Dataset):
         self.label_dir = label_dir
         self.labels = os.listdir(label_dir)       
         
+        print(os.listdir(self.image_dir))
+        
     def __len__(self):
         return len(self.label_dir)
     
@@ -39,4 +41,5 @@ class  AlignedDatset(data.Dataset):
         # label = Image.open(label_path).convert('RGB')    
         # label_tensor = self.get_transform(self.image_size, normalize=False)(label).float()
         
-        return {'label': label_tensor.float(), 'image': image_tensor.float()}
+        #return {'label': label_tensor.float(), 'image': image_tensor.float()}
+        return {'image': image_tensor.float()}

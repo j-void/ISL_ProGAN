@@ -52,7 +52,7 @@ def main():
         image_size = 4 * 2 ** step
         batch_size = config.BATCH_SIZES[int(log2(image_size / 4))]
         dataset = util.get_dataset(config.image_dir, config.label_dir, batch_size, config.num_workers, image_size, isTrain=True)  # 4->0, 8->1, 16->2, 32->3, 64 -> 4
-        print(f"Current image size: {image_size}")
+        print(f"Current image size: {image_size}x{image_size*2}")
 
         for epoch in range(num_epochs):
             print(f"Epoch [{epoch+1}/{num_epochs}]")
