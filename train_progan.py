@@ -31,7 +31,7 @@ def main():
     scaler_gen = torch.cuda.amp.GradScaler()
 
     # for tensorboard plotting
-    writer = SummaryWriter(os.path.join(config.checkpoint_dir, os.name, "logs"))
+    writer = SummaryWriter(os.path.join(config.checkpoint_dir, config.name, "logs"))
 
     if config.LOAD_MODEL:
         util.load_checkpoint(
