@@ -11,6 +11,7 @@ class  AlignedDatset(data.Dataset):
         self.image_size = image_size
         if self.train:
             self.image_dir = image_dir
+            self.images = os.listdir(image_dir)  
             
         self.label_dir = label_dir
         self.labels = os.listdir(label_dir)       
