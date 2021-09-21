@@ -13,6 +13,13 @@ import os
 torch.backends.cudnn.benchmarks = True
 
 def main():
+    
+    if not os.path.exists(config.checkpoint_dir):
+        os.makedirs(config.checkpoint_dir)
+    
+    if not os.path.exists(os.path.join(config.checkpoint_dir, config.name)):
+        os.makedirs(os.path.join(config.checkpoint_dir, config.name))
+    
     gen = Generator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.DEVICE)
     
     critic = Discriminator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.DEVICE)
@@ -24,7 +31,7 @@ def main():
     scaler_gen = torch.cuda.amp.GradScaler()
 
     # for tensorboard plotting
-    writer = SummaryWriter(os.path.join(config.checkpoint_dir, "logs"))
+    writer = SummaryWriter(os.path.join(config.checkpoint_dir, os.name, "logs"))
 
     if config.LOAD_MODEL:
         util.load_checkpoint(

@@ -18,9 +18,7 @@ def get_dataset(image_dir, label_dir, batch_size, nWorkers, image_size, isTrain 
     
     return _dataloader
 
-def plot_to_tensorboard(
-    writer, loss_critic, loss_gen, real, fake, tensorboard_step
-):
+def plot_to_tensorboard(writer, loss_critic, loss_gen, real, fake, tensorboard_step):
     writer.add_scalar("Loss Critic", loss_critic, global_step=tensorboard_step)
 
     with torch.no_grad():
@@ -60,12 +58,12 @@ def save_checkpoint(model, optimizer, filename="my_checkpoint.pth"):
         "state_dict": model.state_dict(),
         "optimizer": optimizer.state_dict(),
     }
-    torch.save(checkpoint, os.path.join(config.checkpoint_dir, filename))
+    torch.save(checkpoint, os.path.join(config.checkpoint_dir, config.name, filename))
 
 
 def load_checkpoint(filename, model, optimizer, lr):
     print("=> Loading checkpoint")
-    checkpoint = torch.load(os.path.join(config.checkpoint_dir, filename), map_location="cuda")
+    checkpoint = torch.load(os.path.join(config.checkpoint_dir, config.name, filename), map_location="cuda")
     model.load_state_dict(checkpoint["state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer"])
 
@@ -91,5 +89,5 @@ def generate_examples(gen, steps, truncation=0.7, n=100):
     
 def save_train_state(image_size, epoch, num_epochs, idx):
     output = "Current Image size: "+ image_size + ", Epoch: (" + epoch + "/" + num_epochs + " : " + idx + ")"
-    np.savetxt(os.path.join(config.checkpoint_dir, "iter.txt"), output)
+    np.savetxt(os.path.join(config.checkpoint_dir, config.name, "iter.txt"), output)
 
