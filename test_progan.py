@@ -26,7 +26,7 @@ def main():
         with torch.no_grad():
             noise = torch.randn(1, config.Z_DIM, 1, 2).to(config.device).float()
             img = gen(noise, alpha, step)
-            save_image(img*0.5+0.5, os.path.join(save_path, config.name, f'output_{IMG_SIZE}x{IMG_SIZE*2}_{i}'))
+            save_image(img*0.5+0.5, os.path.join(save_path, config.name, f'output_{IMG_SIZE}x{IMG_SIZE*2}_{i}.png'))
 
 if __name__ == "__main__":
     main()
