@@ -26,4 +26,5 @@ LAMBDA_GP = 10
 PROGRESSIVE_EPOCHS = [30] * len(BATCH_SIZES)
 FIXED_NOISE = torch.randn(8, Z_DIM, 1, 2).to(device)
 START_TRAIN_AT_IMG_SIZE = 4
+LOAD_MODEL = False
 
