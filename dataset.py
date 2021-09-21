@@ -23,7 +23,7 @@ class  AlignedDatset(data.Dataset):
     
     def get_transform(self, image_size, normalize=True):
         self.transform_list = []
-        self.transform_list += transforms.Resize((image_size, image_size*2))
+        self.transform_list += [transforms.Resize((image_size, image_size*2))]
         self.transform_list += [transforms.ToTensor()]
         if normalize:
             self.transform_list += [transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
