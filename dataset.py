@@ -30,7 +30,6 @@ class  AlignedDatset(data.Dataset):
     
     def __getitem__(self, index):
         
-        image_tensor, label_tensor = 0
         
         if self.train:
             image_path = os.path.join(self.image_dir, self.images[index])
