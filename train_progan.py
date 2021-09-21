@@ -20,9 +20,9 @@ def main():
     if not os.path.exists(os.path.join(config.checkpoint_dir, config.name)):
         os.makedirs(os.path.join(config.checkpoint_dir, config.name))
     
-    gen = Generator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.DEVICE)
+    gen = Generator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.device)
     
-    critic = Discriminator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.DEVICE)
+    critic = Discriminator(config.Z_DIM, config.IN_CHANNELS, img_channels=config.CHANNELS_IMG).to(config.device)
 
     # initialize optimizers and scalers for FP16 training
     opt_gen = optim.Adam(gen.parameters(), lr=config.LEARNING_RATE, betas=(0.0, 0.99))
@@ -57,15 +57,15 @@ def main():
         for epoch in range(num_epochs):
             print(f"Epoch [{epoch+1}/{num_epochs}]")
             for batch_idx, data in enumerate(dataset):
-                real = data["image"].to(config.DEVICE)
+                real = data["image"].to(config.device)
                 cur_batch_size = real.shape[0]
                 epoch_iter += cur_batch_size
-                noise = torch.randn(cur_batch_size, config.Z_DIM, 1, 2).to(config.DEVICE)
+                noise = torch.randn(cur_batch_size, config.Z_DIM, 1, 2).to(config.device)
                 with torch.cuda.amp.autocast():
                     fake = gen(noise, alpha, step)
                     critic_real = critic(real, alpha, step)
                     critic_fake = critic(fake.detach(), alpha, step)
-                    gp = util.gradient_penalty(critic, real, fake, alpha, step, device=config.DEVICE)
+                    gp = util.gradient_penalty(critic, real, fake, alpha, step, device=config.device)
                     loss_critic = (
                         -(torch.mean(critic_real) - torch.mean(critic_fake))
                         + config.LAMBDA_GP * gp
