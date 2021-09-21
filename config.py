@@ -9,7 +9,7 @@ device = "cuda" if torch.cuda.is_available() else 'cpu'
 # Path to image dir
 image_dir = "../edn_data/slv07_rz/train/train_img/" 
 # Path to label dir
-label_dir = "../edn_data/slv07_rz/train/train_label"
+label_dir = "../edn_data/slv07_rz/train/train_label/"
 # Number of epochs
 num_epochs = 100
 # Number of workers
