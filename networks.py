@@ -1,467 +1,595 @@
-# Import necessary modules
 import torch
-import torch.nn as nn
-import math
 
-# Constraints
-# Input: [batch_size, in_channels, height, width]
+from torch import nn
+from torch.nn import init
+from torch.nn import functional as F
+from torch.autograd import Function
 
-# Scaled weight - He initialization
-# "explicitly scale the weights at runtime"
-class ScaleW:
-    '''
-    '''
+from math import sqrt
+from math import log2
+
+import random
+
+
+def init_linear(linear):
+    init.xavier_normal(linear.weight)
+    linear.bias.data.zero_()
+
+
+def init_conv(conv, glu=True):
+    init.kaiming_normal(conv.weight)
+    if conv.bias is not None:
+        conv.bias.data.zero_()
+
+
+class EqualLR:
     def __init__(self, name):
         self.name = name
-    
-    def scale(self, module):
+
+    def compute_weight(self, module):
         weight = getattr(module, self.name + '_orig')
         fan_in = weight.data.size(1) * weight.data[0][0].numel()
-        
-        return weight * math.sqrt(2 / fan_in)
-    
+
+        return weight * sqrt(2 / fan_in)
+
     @staticmethod
     def apply(module, name):
-        '''
-        Apply runtime scaling to specific module
-        '''
-        hook = ScaleW(name)
+        fn = EqualLR(name)
+
         weight = getattr(module, name)
-        module.register_parameter(name + '_orig', nn.Parameter(weight.data))
         del module._parameters[name]
-        module.register_forward_pre_hook(hook)
-    
-    def __call__(self, module, whatever):
-        weight = self.scale(module)
+        module.register_parameter(name + '_orig', nn.Parameter(weight.data))
+        module.register_forward_pre_hook(fn)
+
+        return fn
+
+    def __call__(self, module, input):
+        weight = self.compute_weight(module)
         setattr(module, self.name, weight)
 
-# Quick apply for scaled weight
-def quick_scale(module, name='weight'):
-    ScaleW.apply(module, name)
+
+def equal_lr(module, name='weight'):
+    EqualLR.apply(module, name)
+
     return module
 
-# Uniformly set the hyperparameters of Linears
-# "We initialize all weights of the convolutional, fully-connected, and affine transform layers using N(0, 1)"
-# 5/13: Apply scaled weights
-class SLinear(nn.Module):
-    def __init__(self, dim_in, dim_out):
+
+class FusedUpsample(nn.Module):
+    def __init__(self, in_channel, out_channel, kernel_size, padding=0):
         super().__init__()
 
-        linear = nn.Linear(dim_in, dim_out)
-        linear.weight.data.normal_()
-        linear.bias.data.zero_()
-        
-        self.linear = quick_scale(linear)
+        weight = torch.randn(in_channel, out_channel, kernel_size, kernel_size)
+        bias = torch.zeros(out_channel)
 
-    def forward(self, x):
-        return self.linear(x)
+        fan_in = in_channel * kernel_size * kernel_size
+        self.multiplier = sqrt(2 / fan_in)
 
-# Uniformly set the hyperparameters of Conv2d
-# "We initialize all weights of the convolutional, fully-connected, and affine transform layers using N(0, 1)"
-# 5/13: Apply scaled weights
-class SConv2d(nn.Module):
+        self.weight = nn.Parameter(weight)
+        self.bias = nn.Parameter(bias)
+
+        self.pad = padding
+
+    def forward(self, input):
+        weight = F.pad(self.weight * self.multiplier, [1, 1, 1, 1])
+        weight = (
+            weight[:, :, 1:, 1:]
+            + weight[:, :, :-1, 1:]
+            + weight[:, :, 1:, :-1]
+            + weight[:, :, :-1, :-1]
+        ) / 4
+
+        out = F.conv_transpose2d(input, weight, self.bias, stride=2, padding=self.pad)
+
+        return out
+
+
+class FusedDownsample(nn.Module):
+    def __init__(self, in_channel, out_channel, kernel_size, padding=0):
+        super().__init__()
+
+        weight = torch.randn(out_channel, in_channel, kernel_size, kernel_size)
+        bias = torch.zeros(out_channel)
+
+        fan_in = in_channel * kernel_size * kernel_size
+        self.multiplier = sqrt(2 / fan_in)
+
+        self.weight = nn.Parameter(weight)
+        self.bias = nn.Parameter(bias)
+
+        self.pad = padding
+
+    def forward(self, input):
+        weight = F.pad(self.weight * self.multiplier, [1, 1, 1, 1])
+        weight = (
+            weight[:, :, 1:, 1:]
+            + weight[:, :, :-1, 1:]
+            + weight[:, :, 1:, :-1]
+            + weight[:, :, :-1, :-1]
+        ) / 4
+
+        out = F.conv2d(input, weight, self.bias, stride=2, padding=self.pad)
+
+        return out
+
+
+class PixelNorm(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input):
+        return input / torch.sqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-8)
+
+
+class BlurFunctionBackward(Function):
+    @staticmethod
+    def forward(ctx, grad_output, kernel, kernel_flip):
+        ctx.save_for_backward(kernel, kernel_flip)
+
+        grad_input = F.conv2d(
+            grad_output, kernel_flip, padding=1, groups=grad_output.shape[1]
+        )
+
+        return grad_input
+
+    @staticmethod
+    def backward(ctx, gradgrad_output):
+        kernel, kernel_flip = ctx.saved_tensors
+
+        grad_input = F.conv2d(
+            gradgrad_output, kernel, padding=1, groups=gradgrad_output.shape[1]
+        )
+
+        return grad_input, None, None
+
+
+class BlurFunction(Function):
+    @staticmethod
+    def forward(ctx, input, kernel, kernel_flip):
+        ctx.save_for_backward(kernel, kernel_flip)
+
+        output = F.conv2d(input, kernel, padding=1, groups=input.shape[1])
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        kernel, kernel_flip = ctx.saved_tensors
+
+        grad_input = BlurFunctionBackward.apply(grad_output, kernel, kernel_flip)
+
+        return grad_input, None, None
+
+
+blur = BlurFunction.apply
+
+
+class Blur(nn.Module):
+    def __init__(self, channel):
+        super().__init__()
+
+        weight = torch.tensor([[1, 2, 1], [2, 4, 2], [1, 2, 1]], dtype=torch.float32)
+        weight = weight.view(1, 1, 3, 3)
+        weight = weight / weight.sum()
+        weight_flip = torch.flip(weight, [2, 3])
+
+        self.register_buffer('weight', weight.repeat(channel, 1, 1, 1))
+        self.register_buffer('weight_flip', weight_flip.repeat(channel, 1, 1, 1))
+
+    def forward(self, input):
+        return blur(input, self.weight, self.weight_flip)
+        # return F.conv2d(input, self.weight, padding=1, groups=input.shape[1])
+
+
+class EqualConv2d(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__()
 
         conv = nn.Conv2d(*args, **kwargs)
         conv.weight.data.normal_()
         conv.bias.data.zero_()
-        
-        self.conv = quick_scale(conv)
+        self.conv = equal_lr(conv)
 
-    def forward(self, x):
-        return self.conv(x)
+    def forward(self, input):
+        return self.conv(input)
 
-# Normalization on every element of input vector
-class PixelNorm(nn.Module):
-    def __init__(self):
+
+class EqualLinear(nn.Module):
+    def __init__(self, in_dim, out_dim):
         super().__init__()
 
-    def forward(self, x):
-        return x / torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + 1e-8)
+        linear = nn.Linear(in_dim, out_dim)
+        linear.weight.data.normal_()
+        linear.bias.data.zero_()
 
-# "learned affine transform" A
-class FC_A(nn.Module):
-    '''
-    Learned affine transform A, this module is used to transform
-    midiate vector w into a style vector
-    '''
-    def __init__(self, dim_latent, n_channel):
-        super().__init__()
-        self.transform = SLinear(dim_latent, n_channel * 2)
-        # "the biases associated with ys that we initialize to one"
-        self.transform.linear.bias.data[:n_channel] = 1
-        self.transform.linear.bias.data[n_channel:] = 0
+        self.linear = equal_lr(linear)
 
-    def forward(self, w):
-        # Gain scale factor and bias with:
-        style = self.transform(w).unsqueeze(2).unsqueeze(3)
-        return style
-    
-# AdaIn (AdaptiveInstanceNorm)
-class AdaIn(nn.Module):
-    '''
-    adaptive instance normalization
-    '''
-    def __init__(self, n_channel):
-        super().__init__()
-        self.norm = nn.InstanceNorm2d(n_channel)
-        
-    def forward(self, image, style):
-        factor, bias = style.chunk(2, 1)
-        result = self.norm(image)
-        result = result * factor + bias  
-        return result
+    def forward(self, input):
+        return self.linear(input)
 
-# "learned per-channel scaling factors" B
-# 5/13: Debug - tensor -> nn.Parameter
-class Scale_B(nn.Module):
-    '''
-    Learned per-channel scale factor, used to scale the noise
-    '''
-    def __init__(self, n_channel):
-        super().__init__()
-        self.weight = nn.Parameter(torch.zeros((1, n_channel, 1, 1)))
-    
-    def forward(self, noise):
-        result = noise * self.weight
-        return result 
 
-# Early convolutional block
-# 5/13: Debug - tensor -> nn.Parameter
-# 5/13: Remove noise generating module
-class Early_StyleConv_Block(nn.Module):
-    '''
-    This is the very first block of generator that get the constant value as input
-    '''
-    def __init__ (self, n_channel, dim_latent, dim_input):
-        super().__init__()
-        # Constant input
-        self.constant = nn.Parameter(torch.randn(1, n_channel, dim_input, dim_input))
-        # Style generators
-        self.style1   = FC_A(dim_latent, n_channel)
-        self.style2   = FC_A(dim_latent, n_channel)
-        # Noise processing modules
-        self.noise1   = quick_scale(Scale_B(n_channel))
-        self.noise2   = quick_scale(Scale_B(n_channel))
-        # AdaIn
-        self.adain    = AdaIn(n_channel)
-        self.lrelu    = nn.LeakyReLU(0.2)
-        # Convolutional layer
-        self.conv     = SConv2d(n_channel, n_channel, 3, padding=1)
-    
-    def forward(self, latent_w, noise):
-        # Gaussian Noise: Proxyed by generator
-        # noise1 = torch.normal(mean=0,std=torch.ones(self.constant.shape)).cuda()
-        # noise2 = torch.normal(mean=0,std=torch.ones(self.constant.shape)).cuda()
-        result = self.constant.repeat(noise.shape[0], 1, 1, 1)
-        result = result + self.noise1(noise)
-        result = self.adain(result, self.style1(latent_w))
-        result = self.lrelu(result)
-        result = self.conv(result)
-        result = result + self.noise2(noise)
-        result = self.adain(result, self.style2(latent_w))
-        result = self.lrelu(result)
-        
-        return result
-    
-# General convolutional blocks
-# 5/13: Remove upsampling
-# 5/13: Remove noise generating
-class StyleConv_Block(nn.Module):
-    '''
-    This is the general class of style-based convolutional blocks
-    '''
-    def __init__ (self, in_channel, out_channel, dim_latent):
-        super().__init__()
-        # Style generators
-        self.style1   = FC_A(dim_latent, out_channel)
-        self.style2   = FC_A(dim_latent, out_channel)
-        # Noise processing modules
-        self.noise1   = quick_scale(Scale_B(out_channel))
-        self.noise2   = quick_scale(Scale_B(out_channel))
-        # AdaIn
-        self.adain    = AdaIn(out_channel)
-        self.lrelu    = nn.LeakyReLU(0.2)
-        # Convolutional layers
-        self.conv1    = SConv2d(in_channel, out_channel, 3, padding=1)
-        self.conv2    = SConv2d(out_channel, out_channel, 3, padding=1)
-    
-    def forward(self, previous_result, latent_w, noise):
-        # Upsample: Proxyed by generator
-        # result = nn.functional.interpolate(previous_result, scale_factor=2, mode='bilinear',
-        #                                           align_corners=False)
-        # Conv 3*3
-        result = self.conv1(previous_result)
-        # Gaussian Noise: Proxyed by generator
-        # noise1 = torch.normal(mean=0,std=torch.ones(result.shape)).cuda()
-        # noise2 = torch.normal(mean=0,std=torch.ones(result.shape)).cuda()
-        # Conv & Norm
-        result = result + self.noise1(noise)
-        result = self.adain(result, self.style1(latent_w))
-        result = self.lrelu(result)
-        result = self.conv2(result)
-        result = result + self.noise2(noise)
-        result = self.adain(result, self.style2(latent_w))
-        result = self.lrelu(result)
-        
-        return result    
-
-# Very First Convolutional Block
-# 5/13: No more downsample, this block is the same sa general ones
-# class Early_ConvBlock(nn.Module):
-#     '''
-#     Used to construct progressive discriminator
-#     '''
-#     def __init__(self, in_channel, out_channel, size_kernel, padding):
-#         super().__init__()
-#         self.conv = nn.Sequential(
-#             SConv2d(in_channel, out_channel, size_kernel, padding=padding),
-#             nn.LeakyReLU(0.2),
-#             SConv2d(out_channel, out_channel, size_kernel, padding=padding),
-#             nn.LeakyReLU(0.2)
-#         )
-    
-#     def forward(self, image):
-#         result = self.conv(image)
-#         return result
-    
-# General Convolutional Block
-# 5/13: Downsample is now removed from block module
 class ConvBlock(nn.Module):
-    '''
-    Used to construct progressive discriminator
-    '''
-    def __init__(self, in_channel, out_channel, size_kernel1, padding1, 
-                 size_kernel2 = None, padding2 = None):
+    def __init__(
+        self,
+        in_channel,
+        out_channel,
+        kernel_size,
+        padding,
+        kernel_size2=None,
+        padding2=None,
+        downsample=False,
+        fused=False,
+    ):
         super().__init__()
-        
-        if size_kernel2 == None:
-            size_kernel2 = size_kernel1
-        if padding2 == None:
-            padding2 = padding1
-        
-        self.conv = nn.Sequential(
-            SConv2d(in_channel, out_channel, size_kernel1, padding=padding1),
+
+        pad1 = padding
+        pad2 = padding
+        if padding2 is not None:
+            pad2 = padding2
+
+        kernel1 = kernel_size
+        kernel2 = kernel_size
+        if kernel_size2 is not None:
+            kernel2 = kernel_size2
+
+        self.conv1 = nn.Sequential(
+            EqualConv2d(in_channel, out_channel, kernel1, padding=pad1),
             nn.LeakyReLU(0.2),
-            SConv2d(out_channel, out_channel, size_kernel2, padding=padding2),
-            nn.LeakyReLU(0.2)
         )
-    
-    def forward(self, image):
-        # Downsample now proxyed by discriminator
-        # result = nn.functional.interpolate(image, scale_factor=0.5, mode="bilinear", align_corners=False)
-        # Conv
-        result = self.conv(image)
-        return result
-        
-    
-# Main components
-class Intermediate_Generator(nn.Module):
-    '''
-    A mapping consists of multiple fully connected layers.
-    Used to map the input to an intermediate latent space W.
-    '''
-    def __init__(self, n_fc, dim_latent):
-        super().__init__()
-        layers = [PixelNorm()]
-        for i in range(n_fc):
-            layers.append(SLinear(dim_latent, dim_latent))
-            layers.append(nn.LeakyReLU(0.2))
-            
-        self.mapping = nn.Sequential(*layers)
-    
-    def forward(self, latent_z):
-        latent_w = self.mapping(latent_z)
-        return latent_w    
 
-# Generator
-# 5/13: Support progressive training
-# 5/13: Proxy noise generating
-# 5/13: Proxy upsampling
-class StyleBased_Generator(nn.Module):
-    '''
-    Main Module
-    '''
-    def __init__(self, n_fc, dim_latent, dim_input):
-        super().__init__()
-        # Waiting to adjust the size
-        self.fcs    = Intermediate_Generator(n_fc, dim_latent)
-        self.convs  = nn.ModuleList([
-            Early_StyleConv_Block(512, dim_latent, dim_input),
-            StyleConv_Block(512, 512, dim_latent),
-            StyleConv_Block(512, 512, dim_latent),
-            StyleConv_Block(512, 512, dim_latent),
-            StyleConv_Block(512, 256, dim_latent),
-            StyleConv_Block(256, 128, dim_latent),
-            StyleConv_Block(128, 64, dim_latent),
-            StyleConv_Block(64, 32, dim_latent),
-            StyleConv_Block(32, 16, dim_latent)
-        ])
-        self.to_rgbs = nn.ModuleList([
-            SConv2d(512, 3, 1),
-            SConv2d(512, 3, 1),
-            SConv2d(512, 3, 1),
-            SConv2d(512, 3, 1),
-            SConv2d(256, 3, 1),
-            SConv2d(128, 3, 1),
-            SConv2d(64, 3, 1),
-            SConv2d(32, 3, 1),
-            SConv2d(16, 3, 1)
-        ])
-    def forward(self, latent_z, 
-                step = 0,       # Step means how many layers (count from 4 x 4) are used to train
-                alpha=-1,       # Alpha is the parameter of smooth conversion of resolution):
-                noise=None,     # TODO: support none noise
-                mix_steps=[],   # steps inside will use latent_z[1], else latent_z[0]
-                latent_w_center=None, # Truncation trick in W    
-                psi=0):               # parameter of truncation
-        if type(latent_z) != type([]):
-            print('You should use list to package your latent_z')
-            latent_z = [latent_z]
-        if (len(latent_z) != 2 and len(mix_steps) > 0) or type(mix_steps) != type([]):
-            print('Warning: Style mixing disabled, possible reasons:')
-            print('- Invalid number of latent vectors')
-            print('- Invalid parameter type: mix_steps')
-            mix_steps = []
-        
-        latent_w = [self.fcs(latent) for latent in latent_z]
-        batch_size = latent_w[0].size(0)
+        if downsample:
+            if fused:
+                self.conv2 = nn.Sequential(
+                    Blur(out_channel),
+                    FusedDownsample(out_channel, out_channel, kernel2, padding=pad2),
+                    nn.LeakyReLU(0.2),
+                )
 
-        # Truncation trick in W    
-        # Only usable in estimation
-        if latent_w_center is not None:
-            latent_w = [latent_w_center + psi * (unscaled_latent_w - latent_w_center) 
-                for unscaled_latent_w in latent_w]
-        
-        # Generate needed Gaussian noise
-        # 5/22: Noise is now generated by outer module
-        # noise = []
-        result = 0
-        current_latent = 0
-        # for i in range(step + 1):
-        #     size = 4 * 2 ** i # Due to the upsampling, size of noise will grow
-        #     noise.append(torch.randn((batch_size, 1, size, size), device=torch.device('cuda:0')))
-        
-        for i, conv in enumerate(self.convs):
-            # Choose current latent_w
-            if i in mix_steps:
-                current_latent = latent_w[1]
             else:
-                current_latent = latent_w[0]
-                
-            # Not the first layer, need to upsample
+                self.conv2 = nn.Sequential(
+                    Blur(out_channel),
+                    EqualConv2d(out_channel, out_channel, kernel2, padding=pad2),
+                    nn.AvgPool2d(2),
+                    nn.LeakyReLU(0.2),
+                )
+
+        else:
+            self.conv2 = nn.Sequential(
+                EqualConv2d(out_channel, out_channel, kernel2, padding=pad2),
+                nn.LeakyReLU(0.2),
+            )
+
+    def forward(self, input):
+        out = self.conv1(input)
+        out = self.conv2(out)
+
+        return out
+
+
+class AdaptiveInstanceNorm(nn.Module):
+    def __init__(self, in_channel, style_dim):
+        super().__init__()
+
+        self.norm = nn.InstanceNorm2d(in_channel)
+        self.style = EqualLinear(style_dim, in_channel * 2)
+
+        self.style.linear.bias.data[:in_channel] = 1
+        self.style.linear.bias.data[in_channel:] = 0
+
+    def forward(self, input, style):
+        style = self.style(style).unsqueeze(2).unsqueeze(3)
+        gamma, beta = style.chunk(2, 1)
+
+        out = self.norm(input)
+        out = gamma * out + beta
+
+        return out
+
+
+class NoiseInjection(nn.Module):
+    def __init__(self, channel):
+        super().__init__()
+
+        self.weight = nn.Parameter(torch.zeros(1, channel, 1, 1))
+
+    def forward(self, image, noise):
+        #print(image.shape, noise.shape)
+        return image + self.weight * noise
+
+
+class ConstantInput(nn.Module):
+    def __init__(self, channel, size=4):
+        super().__init__()
+
+        self.input = nn.Parameter(torch.randn(1, channel, size, size*2))
+
+    def forward(self, input):
+        batch = input.shape[0]
+        out = self.input.repeat(batch, 1, 1, 1)
+
+        return out
+
+
+class StyledConvBlock(nn.Module):
+    def __init__(
+        self,
+        in_channel,
+        out_channel,
+        kernel_size=3,
+        padding=1,
+        style_dim=512,
+        initial=False,
+        upsample=False,
+        fused=False,
+    ):
+        super().__init__()
+
+        if initial:
+            self.conv1 = ConstantInput(in_channel)
+
+        else:
+            if upsample:
+                if fused:
+                    self.conv1 = nn.Sequential(
+                        FusedUpsample(
+                            in_channel, out_channel, kernel_size, padding=padding
+                        ),
+                        Blur(out_channel),
+                    )
+
+                else:
+                    self.conv1 = nn.Sequential(
+                        nn.Upsample(scale_factor=2, mode='nearest'),
+                        EqualConv2d(
+                            in_channel, out_channel, kernel_size, padding=padding
+                        ),
+                        Blur(out_channel),
+                    )
+
+            else:
+                self.conv1 = EqualConv2d(
+                    in_channel, out_channel, kernel_size, padding=padding
+                )
+
+        self.noise1 = equal_lr(NoiseInjection(out_channel))
+        self.adain1 = AdaptiveInstanceNorm(out_channel, style_dim)
+        self.lrelu1 = nn.LeakyReLU(0.2)
+
+        self.conv2 = EqualConv2d(out_channel, out_channel, kernel_size, padding=padding)
+        self.noise2 = equal_lr(NoiseInjection(out_channel))
+        self.adain2 = AdaptiveInstanceNorm(out_channel, style_dim)
+        self.lrelu2 = nn.LeakyReLU(0.2)
+
+    def forward(self, input, style, noise):
+        out = self.conv1(input)
+        out = self.noise1(out, noise)
+        out = self.lrelu1(out)
+        out = self.adain1(out, style)
+
+        out = self.conv2(out)
+        out = self.noise2(out, noise)
+        out = self.lrelu2(out)
+        out = self.adain2(out, style)
+
+        return out
+
+
+class Generator(nn.Module):
+    def __init__(self, code_dim, fused=True):
+        super().__init__()
+
+        self.progression = nn.ModuleList(
+            [
+                StyledConvBlock(512, 512, 3, 1, initial=True),  # 4
+                StyledConvBlock(512, 512, 3, 1, upsample=True),  # 8
+                StyledConvBlock(512, 512, 3, 1, upsample=True),  # 16
+                StyledConvBlock(512, 512, 3, 1, upsample=True),  # 32
+                StyledConvBlock(512, 256, 3, 1, upsample=True),  # 64
+                StyledConvBlock(256, 128, 3, 1, upsample=True, fused=fused),  # 128
+                StyledConvBlock(128, 64, 3, 1, upsample=True, fused=fused),  # 256
+                StyledConvBlock(64, 32, 3, 1, upsample=True, fused=fused),  # 512
+                StyledConvBlock(32, 16, 3, 1, upsample=True, fused=fused),  # 1024
+            ]
+        )
+
+        self.to_rgb = nn.ModuleList(
+            [
+                EqualConv2d(512, 3, 1),
+                EqualConv2d(512, 3, 1),
+                EqualConv2d(512, 3, 1),
+                EqualConv2d(512, 3, 1),
+                EqualConv2d(256, 3, 1),
+                EqualConv2d(128, 3, 1),
+                EqualConv2d(64, 3, 1),
+                EqualConv2d(32, 3, 1),
+                EqualConv2d(16, 3, 1),
+            ]
+        )
+
+        # self.blur = Blur()
+
+    def forward(self, style, noise, step=0, alpha=-1, mixing_range=(-1, -1)):
+        out = noise[0]
+
+        if len(style) < 2:
+            inject_index = [len(self.progression) + 1]
+
+        else:
+            inject_index = sorted(random.sample(list(range(step)), len(style) - 1))
+
+        crossover = 0
+
+        for i, (conv, to_rgb) in enumerate(zip(self.progression, self.to_rgb)):
+            if mixing_range == (-1, -1):
+                if crossover < len(inject_index) and i > inject_index[crossover]:
+                    crossover = min(crossover + 1, len(style))
+
+                style_step = style[crossover]
+
+            else:
+                if mixing_range[0] <= i <= mixing_range[1]:
+                    style_step = style[1]
+
+                else:
+                    style_step = style[0]
+
             if i > 0 and step > 0:
-                result_upsample = nn.functional.interpolate(result, scale_factor=2, mode='bilinear',
-                                                  align_corners=False)
-                result = conv(result_upsample, current_latent, noise[i])
-            else:
-                result = conv(current_latent, noise[i])
-            
-            # Final layer, output rgb image
+                out_prev = out
+                
+            out = conv(out, style_step, noise[i])
+
             if i == step:
-                result = self.to_rgbs[i](result)
-                
+                out = to_rgb(out)
+
                 if i > 0 and 0 <= alpha < 1:
-                    result_prev = self.to_rgbs[i - 1](result_upsample)
-                    result = alpha * result + (1 - alpha) * result_prev
-                    
-                # Finish and break
+                    skip_rgb = self.to_rgb[i - 1](out_prev)
+                    skip_rgb = F.interpolate(skip_rgb, scale_factor=2, mode='nearest')
+                    out = (1 - alpha) * skip_rgb + alpha * out
+
                 break
-        
-        return result
 
-    def center_w(self, zs):
-        '''
-        To begin, we compute the center of mass of W
-        '''
-        latent_w_center = self.fcs(zs).mean(0, keepdim=True)
-        return latent_w_center
-        
+        return out
 
-# Discriminator
-# 5/13: Support progressive training
-# 5/13: Add downsample module
-# Component of Progressive GAN
-# Reference: Karras, T., Aila, T., Laine, S., & Lehtinen, J. (2017).
-# Progressive Growing of GANs for Improved Quality, Stability, and Variation, 1–26.
-# Retrieved from http://arxiv.org/abs/1710.10196
-class Discriminator(nn.Module):
-    '''
-    Main Module
-    '''
-    def __init__(self):
+
+class StyledGenerator(nn.Module):
+    def __init__(self, code_dim=512, n_mlp=8):
         super().__init__()
-        # Waiting to adjust the size
-        self.from_rgbs = nn.ModuleList([
-            SConv2d(3, 16, 1),
-            SConv2d(3, 32, 1),
-            SConv2d(3, 64, 1),
-            SConv2d(3, 128, 1),
-            SConv2d(3, 256, 1),
-            SConv2d(3, 512, 1),
-            SConv2d(3, 512, 1),
-            SConv2d(3, 512, 1),
-            SConv2d(3, 512, 1)
-       ])
-        self.convs  = nn.ModuleList([
-            ConvBlock(16, 32, 3, 1),
-            ConvBlock(32, 64, 3, 1),
-            ConvBlock(64, 128, 3, 1),
-            ConvBlock(128, 256, 3, 1),
-            ConvBlock(256, 512, 3, 1),
-            ConvBlock(512, 512, 3, 1),
-            ConvBlock(512, 512, 3, 1),
-            ConvBlock(512, 512, 3, 1),
-            ConvBlock(513, 512, 3, 1, 4, 0)
-        ])
-        self.fc = SLinear(512, 1)
-        
-        self.n_layer = 9 # 9 layers network
-    
-    def forward(self, image, 
-                step = 0,  # Step means how many layers (count from 4 x 4) are used to train
-                alpha=-1):  # Alpha is the parameter of smooth conversion of resolution):
+
+        self.generator = Generator(code_dim)
+
+        layers = [PixelNorm()]
+        for i in range(n_mlp):
+            layers.append(EqualLinear(code_dim, code_dim))
+            layers.append(nn.LeakyReLU(0.2))
+
+        self.style = nn.Sequential(*layers)
+
+    def forward(
+        self,
+        input,
+        noise=None,
+        step=0,
+        alpha=-1,
+        mean_style=None,
+        style_weight=0,
+        mixing_range=(-1, -1),
+    ):
+        styles = []
+        if type(input) not in (list, tuple):
+            input = [input]
+
+        for i in input:
+            styles.append(self.style(i))
+
+        batch = input[0].shape[0]
+
+        if noise is None:
+            noise = []
+
+            for i in range(step + 1):
+                size = 4 * 2 ** i
+                noise.append(torch.randn(batch, 1, size, size*2, device=input[0].device))
+
+        if mean_style is not None:
+            styles_norm = []
+
+            for style in styles:
+                styles_norm.append(mean_style + style_weight * (style - mean_style))
+
+            styles = styles_norm
+
+        return self.generator(styles, noise, step, alpha, mixing_range=mixing_range)
+
+    def mean_style(self, input):
+        style = self.style(input).mean(0, keepdim=True)
+
+        return style
+
+
+class Discriminator(nn.Module):
+    def __init__(self, fused=True, from_rgb_activate=False):
+        super().__init__()
+
+        self.progression = nn.ModuleList(
+            [
+                ConvBlock(16, 32, 3, 1, downsample=True, fused=fused),  # 512
+                ConvBlock(32, 64, 3, 1, downsample=True, fused=fused),  # 256
+                ConvBlock(64, 128, 3, 1, downsample=True, fused=fused),  # 128
+                ConvBlock(128, 256, 3, 1, downsample=True, fused=fused),  # 64
+                ConvBlock(256, 512, 3, 1, downsample=True),  # 32
+                ConvBlock(512, 512, 3, 1, downsample=True),  # 16
+                ConvBlock(512, 512, 3, 1, downsample=True),  # 8
+                ConvBlock(512, 512, 3, 1, downsample=True),  # 4
+                ConvBlock(513, 512, 3, 1, 4, 0),
+            ]
+        )
+
+        def make_from_rgb(out_channel):
+            if from_rgb_activate:
+                return nn.Sequential(EqualConv2d(3, out_channel, 1), nn.LeakyReLU(0.2))
+
+            else:
+                return EqualConv2d(3, out_channel, 1)
+
+        self.from_rgb = nn.ModuleList(
+            [
+                make_from_rgb(16),
+                make_from_rgb(32),
+                make_from_rgb(64),
+                make_from_rgb(128),
+                make_from_rgb(256),
+                make_from_rgb(512),
+                make_from_rgb(512),
+                make_from_rgb(512),
+                make_from_rgb(512),
+            ]
+        )
+
+        # self.blur = Blur()
+
+        self.n_layer = len(self.progression)
+
+        self.linear = EqualLinear(512, 1)
+
+    def forward(self, input, step=0, alpha=-1):
         for i in range(step, -1, -1):
-            # Get the index of current layer
-            # Count from the bottom layer (4 * 4)
-            layer_index = self.n_layer - i - 1 
-            
-            # First layer, need to use from_rgb to convert to n_channel data
-            if i == step: 
-                result = self.from_rgbs[layer_index](image)
-            
-            # Before final layer, do minibatch stddev
+            index = self.n_layer - i - 1
+
+            if i == step:
+                out = self.from_rgb[index](input)
+
             if i == 0:
-                # In dim: [batch, channel(512), 4, 4]
-                res_var = result.var(0, unbiased=False) + 1e-8 # Avoid zero
-                # Out dim: [channel(512), 4, 4]
-                res_std = torch.sqrt(res_var)
-                # Out dim: [channel(512), 4, 4]
-                mean_std = res_std.mean().expand(result.size(0), 1, 4, 4)
-                # Out dim: [1] -> [batch, 1, 4, 4]
-                result = torch.cat([result, mean_std], 1)
-                # Out dim: [batch, 512 + 1, 4, 4]
-            
-            # Conv
-            result = self.convs[layer_index](result)
-            
-            # Not the final layer
+                out_std = torch.sqrt(out.var(0, unbiased=False) + 1e-8)
+                mean_std = out_std.mean()
+                mean_std = mean_std.expand(out.size(0), 1, 4, 8)
+                out = torch.cat([out, mean_std], 1)
+
+            out = self.progression[index](out)
+
             if i > 0:
-                # Downsample for further usage
-                result = nn.functional.interpolate(result, scale_factor=0.5, mode='bilinear',
-                                                  align_corners=False)
-                # Alpha set, combine the result of different layers when input
                 if i == step and 0 <= alpha < 1:
-                    result_next = self.from_rgbs[layer_index + 1](image)
-                    result_next = nn.functional.interpolate(result_next, scale_factor=0.5,
-                                                           mode = 'bilinear', align_corners=False)
-                
-                    result = alpha * result + (1 - alpha) * result_next
-                    
-        # Now, result is [batch, channel(512), 1, 1]
-        # Convert it into [batch, channel(512)], so the fully-connetced layer 
-        # could process it.
-        result = result.squeeze(2).squeeze(2)
-        result = self.fc(result)
-        return result
+                    skip_rgb = F.avg_pool2d(input, 2)
+                    skip_rgb = self.from_rgb[index + 1](skip_rgb)
+
+                    out = (1 - alpha) * skip_rgb + alpha * out
+
+        out = out.squeeze(2).squeeze(2)
+        # print(input.size(), out.size(), step)
+        out = self.linear(out)
+
+        return out
+    
+
+if __name__ == "__main__":
+    code_size = 512
+    gen = StyledGenerator(code_size)
+    dis =  Discriminator(False)
+    for img_size in [4, 8, 16, 32, 64, 128, 256, 512]:
+        num_steps = int(log2(img_size)) - 2
+        gen_in1, gen_in2 = torch.randn(2, img_size, code_size).chunk(2, 0)
+        gen_in1 = gen_in1.squeeze(0)
+        gen_in2 = gen_in2.squeeze(0)
+        z = gen(gen_in1, step=num_steps, alpha=1)
+        print("Generator output: ",z.shape)
+        zf = dis(z, step=num_steps, alpha=1)
+        print("Discriminator output: ",zf.shape)
+
