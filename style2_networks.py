@@ -697,13 +697,14 @@ class Discriminator(nn.Module):
         return out
 
 if __name__ == "__main__":
+    device = "cuda" if torch.cuda.is_available() else 'cpu'
     _size = 1024
     _latent = 512
     _n_mlp = 8
     _channel_multiplier = 2
-    generator = Generator(_size, _latent, _n_mlp, channel_multiplier=_channel_multiplier)
-    discriminator = Discriminator(_size, channel_multiplier=_channel_multiplier)
-    noise = torch.randn(2, 1, _latent)
+    generator = Generator(_size, _latent, _n_mlp, channel_multiplier=_channel_multiplier).to(device)
+    discriminator = Discriminator(_size, channel_multiplier=_channel_multiplier).to(device)
+    noise = torch.randn(2, 1, _latent).to(device)
     fake_img, _ = generator(noise)
     print("G:", fake_img.shape)
     fake_pred = discriminator(fake_img)
