@@ -320,11 +320,11 @@ class ConstantInput(nn.Module):
     def __init__(self, channel, size=4):
         super().__init__()
 
-        self.input = nn.Parameter(torch.randn(1, channel, size, size))
+        self.input = nn.Parameter(torch.randn(1, channel, size, size*2))
 
     def forward(self, input):
         batch = input.shape[0]
-        out = self.input.repeat(batch, 1, 1, 1)
+        out = self.input.repeat(batch, 1, 1, 1*2)
 
         return out
 
@@ -698,7 +698,7 @@ class Discriminator(nn.Module):
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else 'cpu'
-    _size = 1024
+    _size = 512
     _latent = 512
     _n_mlp = 8
     _channel_multiplier = 2

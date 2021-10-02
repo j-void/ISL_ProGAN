@@ -49,7 +49,7 @@ if not os.path.exists(args.output_dir):
 img_path = os.path.join(args.frame_dir, "*.png")
 frames = glob.glob(img_path)
 frames.sort()
-
+frame_count = len(frames)
 for i in range(len(frames)):
     _frame = cv2.imread(frames[i])
     cv2.waitKey(0)
@@ -58,3 +58,4 @@ for i in range(len(frames)):
     _filename = "frame_"+'{:0>12}'.format(i)+".png"
     filename = os.path.join(args.output_dir, _filename)
     cv2.imwrite(filename, out_frame)
+    print("Progress: ",int((i/frame_count)*100.0),"%", end="\r")
