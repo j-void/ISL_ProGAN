@@ -671,6 +671,7 @@ class Discriminator(nn.Module):
         self.stddev_feat = 1
 
         self.final_conv = ConvLayer(in_channel + 1, channels[4], 3)
+        #self.final_size_conv = nn.Conv2d(in_channel + 1, channels[4], )
         self.final_linear = nn.Sequential(
             EqualLinear(channels[4] * 4 * 4, channels[4], activation="fused_lrelu"),
             EqualLinear(channels[4], 1),
@@ -690,7 +691,7 @@ class Discriminator(nn.Module):
         out = torch.cat([out, stddev], 1)
         print("Before Final Conv: ", out.shape)
         out = self.final_conv(out)
-
+        print("After Final Conv: ", out.shape)
         out = out.view(batch, -1)
         print("Before Final Linear: ", out.shape)
         out = self.final_linear(out)
