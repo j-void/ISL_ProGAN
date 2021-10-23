@@ -320,7 +320,7 @@ class ConstantInput(nn.Module):
     def __init__(self, channel, size=4):
         super().__init__()
 
-        self.input = nn.Parameter(torch.randn(1, channel, size, size*2))
+        self.input = nn.Parameter(torch.randn(1, channel, size, size))
 
     def forward(self, input):
         batch = input.shape[0]
@@ -707,8 +707,8 @@ if __name__ == "__main__":
     noise = torch.randn(2, 1, _latent).to(device)
     fake_img, _ = generator(noise)
     print("G:", fake_img.shape)
-    #fake_pred = discriminator(fake_img)
-    #print("D:", fake_pred.shape)
+    fake_pred = discriminator(fake_img)
+    print("D:", fake_pred.shape)
     
     
     
