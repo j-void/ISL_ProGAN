@@ -707,8 +707,8 @@ if __name__ == "__main__":
     noise = torch.randn(2, 1, _latent).to(device)
     fake_img, _ = generator(noise)
     print("G:", fake_img.shape)
-    fake_pred = discriminator(fake_img)
-    print("D:", fake_pred.shape)
+    #fake_pred = discriminator(fake_img)
+    #print("D:", fake_pred.shape)
     
     
     
