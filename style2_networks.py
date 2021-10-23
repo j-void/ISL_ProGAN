@@ -671,7 +671,7 @@ class Discriminator(nn.Module):
         self.stddev_feat = 1
 
         self.final_conv = ConvLayer(in_channel + 1, channels[4], 3)
-        #self.final_size_conv = nn.Conv2d(in_channel + 1, channels[4], )
+        self.final_size_conv = nn.Conv2d(in_channel + 1, channels[4], (3, 4), (1, 2), 1)
         self.final_linear = nn.Sequential(
             EqualLinear(channels[4] * 4 * 4, channels[4], activation="fused_lrelu"),
             EqualLinear(channels[4], 1),
