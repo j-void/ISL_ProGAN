@@ -688,10 +688,11 @@ class Discriminator(nn.Module):
         stddev = stddev.mean([2, 3, 4], keepdims=True).squeeze(2)
         stddev = stddev.repeat(group, 1, height, width)
         out = torch.cat([out, stddev], 1)
-
+        print("Before Final Conv: ", out.shape)
         out = self.final_conv(out)
 
         out = out.view(batch, -1)
+        print("Before Final Linear: ", out.shape)
         out = self.final_linear(out)
 
         return out
