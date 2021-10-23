@@ -319,8 +319,8 @@ class NoiseInjection(nn.Module):
 class ConstantInput(nn.Module):
     def __init__(self, channel, size=4):
         super().__init__()
-
-        self.input = nn.Parameter(torch.randn(1, channel, size, size))
+        #size changed
+        self.input = nn.Parameter(torch.randn(1, channel, size, size*2))
 
     def forward(self, input):
         batch = input.shape[0]
@@ -671,6 +671,7 @@ class Discriminator(nn.Module):
         self.stddev_feat = 1
 
         self.final_conv = ConvLayer(in_channel + 1, channels[4], 3)
+        #size changed
         self.final_size_conv = nn.Conv2d(in_channel + 1, channels[4], (3, 4), (1, 2), 1)
         self.final_linear = nn.Sequential(
             EqualLinear(channels[4] * 4 * 4, channels[4], activation="fused_lrelu"),
@@ -691,6 +692,8 @@ class Discriminator(nn.Module):
         out = torch.cat([out, stddev], 1)
         print("Before Final Conv: ", out.shape)
         out = self.final_conv(out)
+        #size changed
+        out = self.final_size_conv(out)
         print("After Final Conv: ", out.shape)
         out = out.view(batch, -1)
         print("Before Final Linear: ", out.shape)
