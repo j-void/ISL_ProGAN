@@ -19,7 +19,7 @@ class  AlignedDatset(data.Dataset):
         #print(os.listdir(self.image_dir))
         
     def __len__(self):
-        return len(self.image_dir)
+        return len(self.images)
     
     def get_transform(self, image_size, normalize=True):
         self.transform_list = []
