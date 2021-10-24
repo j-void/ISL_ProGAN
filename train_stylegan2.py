@@ -336,10 +336,9 @@ if __name__ == "__main__":
             real_score_val = loss_reduced["real_score"].mean().item()
             fake_score_val = loss_reduced["fake_score"].mean().item()
             path_length_val = loss_reduced["path_length"].mean().item()
-                
-            if batch_idx % 100 == 0:
-                print(f"Epoch: {epoch+1}, Batch_Idx: {batch_idx}, Total_Iter: {i}, G_Loss: {g_loss_val:.4f}, D_Loss: {d_loss_val:.4f},\
-                    R1_Loss: {r1_val:.4f}, Path: {path_loss_val:.4f}, Mean_Path: {mean_path_length_avg:.4f}, Augment: {ada_aug_p:.4f}")
+            #100
+            if batch_idx % 5 == 0:
+                print(f"Epoch: {epoch+1}, Batch_Idx: {batch_idx}, Total_Iter: {i}, G_Loss: {g_loss_val:.4f}, D_Loss: {d_loss_val:.4f}, R1_Loss: {r1_val:.4f}, Path: {path_loss_val:.4f}, Mean_Path: {mean_path_length_avg:.4f}, Augment: {ada_aug_p:.4f}")
                 writer.add_scalar("d_loss_val", d_loss_val, i)
                 writer.add_scalar("g_loss_val", g_loss_val, i)
                 writer.add_scalar("r1_val", r1_val, i)
@@ -348,13 +347,13 @@ if __name__ == "__main__":
                 writer.add_scalar("fake_score_val", fake_score_val, i)
                 writer.add_scalar("path_length_val", path_length_val, i)
                 
-                
-            if batch_idx % 1000 == 0:
+            #1000 
+            if batch_idx % 5 == 0:
                 g_ema.eval()
                 sample, _ = g_ema([sample_z])
                 utils.save_image(sample, os.path.join(_sample_path, f"e_{str(epoch).zfill(3)}_idx_{str(batch_idx).zfill(6)}.png") , nrow=int(args.n_sample ** 0.5), normalize=True, range=(-1, 1))
-            
-            if i % 10000 == 0:
+            #10000
+            if i % 5 == 0:
                 torch.save(
                     {
                         "g": g_module.state_dict(),
