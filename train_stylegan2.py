@@ -348,10 +348,12 @@ if __name__ == "__main__":
                 writer.add_scalar("path_length_val", path_length_val, i)
                 
             #1000 
-            if batch_idx % 1000 == 0:
+            if batch_idx % 10 == 0:
                 g_ema.eval()
                 sample, _ = g_ema([sample_z])
                 utils.save_image(sample, os.path.join(_sample_path, f"e_{str(epoch).zfill(3)}_idx_{str(batch_idx).zfill(6)}.png") , nrow=int(args.n_sample ** 0.5), normalize=True, range=(-1, 1))
+                with open(os.path.join(_model_path, "iter.txt"), 'w') as f:
+                    f.write(f"Epoch: {epoch+1}, Batch_Idx: {batch_idx}, Total_Iter: {i}")
             #50000
             if i % 10000 == 0:
                 torch.save(
