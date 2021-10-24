@@ -223,150 +223,150 @@ if __name__ == "__main__":
     sample_z = torch.randn(args.n_sample, args.latent, device=device)
     
     num_epochs = args.epochs
-    for epoch in range(start_epoch, num_epochs):
-        for batch_idx, data in enumerate(dataset):
-            i = epoch * dataset_size + batch_idx
-            real_img = data["image"].to(device)
-            requires_grad(generator, False)
-            requires_grad(discriminator, True)
+    # for epoch in range(start_epoch, num_epochs):
+    #     for batch_idx, data in enumerate(dataset):
+    #         i = epoch * dataset_size + batch_idx
+    #         real_img = data["image"].to(device)
+    #         requires_grad(generator, False)
+    #         requires_grad(discriminator, True)
 
-            noise = mixing_noise(args.batch, args.latent, args.mixing, device)
-            fake_img, _ = generator(noise)
+    #         noise = mixing_noise(args.batch, args.latent, args.mixing, device)
+    #         fake_img, _ = generator(noise)
 
-            if args.augment:
-                real_img_aug, _ = augment(real_img, ada_aug_p)
-                fake_img, _ = augment(fake_img, ada_aug_p)
-            else:
-                real_img_aug = real_img
+    #         if args.augment:
+    #             real_img_aug, _ = augment(real_img, ada_aug_p)
+    #             fake_img, _ = augment(fake_img, ada_aug_p)
+    #         else:
+    #             real_img_aug = real_img
     
-            fake_pred = discriminator(fake_img)
-            real_pred = discriminator(real_img_aug)
-            d_loss = d_logistic_loss(real_pred, fake_pred)
+    #         fake_pred = discriminator(fake_img)
+    #         real_pred = discriminator(real_img_aug)
+    #         d_loss = d_logistic_loss(real_pred, fake_pred)
 
-            loss_dict["d"] = d_loss
-            loss_dict["real_score"] = real_pred.mean()
-            loss_dict["fake_score"] = fake_pred.mean()
+    #         loss_dict["d"] = d_loss
+    #         loss_dict["real_score"] = real_pred.mean()
+    #         loss_dict["fake_score"] = fake_pred.mean()
 
-            discriminator.zero_grad()
-            d_loss.backward()
-            d_optim.step()
+    #         discriminator.zero_grad()
+    #         d_loss.backward()
+    #         d_optim.step()
 
-            if args.augment and args.augment_p == 0:
-                ada_aug_p = ada_augment.tune(real_pred)
-                r_t_stat = ada_augment.r_t_stat
+    #         if args.augment and args.augment_p == 0:
+    #             ada_aug_p = ada_augment.tune(real_pred)
+    #             r_t_stat = ada_augment.r_t_stat
 
-            d_regularize = i % args.d_reg_every == 0
+    #         d_regularize = i % args.d_reg_every == 0
             
-            if d_regularize:
-                real_img.requires_grad = True
+    #         if d_regularize:
+    #             real_img.requires_grad = True
 
-                if args.augment:
-                    real_img_aug, _ = augment(real_img, ada_aug_p)
+    #             if args.augment:
+    #                 real_img_aug, _ = augment(real_img, ada_aug_p)
 
-                else:
-                    real_img_aug = real_img
+    #             else:
+    #                 real_img_aug = real_img
 
-                real_pred = discriminator(real_img_aug)
-                r1_loss = d_r1_loss(real_pred, real_img)
+    #             real_pred = discriminator(real_img_aug)
+    #             r1_loss = d_r1_loss(real_pred, real_img)
 
-                discriminator.zero_grad()
-                (args.r1 / 2 * r1_loss * args.d_reg_every + 0 * real_pred[0]).backward()
+    #             discriminator.zero_grad()
+    #             (args.r1 / 2 * r1_loss * args.d_reg_every + 0 * real_pred[0]).backward()
 
-                d_optim.step()
+    #             d_optim.step()
 
-            loss_dict["r1"] = r1_loss
+    #         loss_dict["r1"] = r1_loss
 
-            requires_grad(generator, True)
-            requires_grad(discriminator, False)
+    #         requires_grad(generator, True)
+    #         requires_grad(discriminator, False)
             
-            requires_grad(generator, True)
-            requires_grad(discriminator, False)
+    #         requires_grad(generator, True)
+    #         requires_grad(discriminator, False)
 
-            noise = mixing_noise(args.batch, args.latent, args.mixing, device)
-            fake_img, _ = generator(noise)
+    #         noise = mixing_noise(args.batch, args.latent, args.mixing, device)
+    #         fake_img, _ = generator(noise)
 
-            if args.augment:
-                fake_img, _ = augment(fake_img, ada_aug_p)
+    #         if args.augment:
+    #             fake_img, _ = augment(fake_img, ada_aug_p)
 
-            fake_pred = discriminator(fake_img)
-            g_loss = g_nonsaturating_loss(fake_pred)
+    #         fake_pred = discriminator(fake_img)
+    #         g_loss = g_nonsaturating_loss(fake_pred)
 
-            loss_dict["g"] = g_loss
+    #         loss_dict["g"] = g_loss
 
-            generator.zero_grad()
-            g_loss.backward()
-            g_optim.step()
+    #         generator.zero_grad()
+    #         g_loss.backward()
+    #         g_optim.step()
 
-            g_regularize = i % args.g_reg_every == 0
+    #         g_regularize = i % args.g_reg_every == 0
             
-            if g_regularize:
-                path_batch_size = max(1, args.batch // args.path_batch_shrink)
-                noise = mixing_noise(path_batch_size, args.latent, args.mixing, device)
-                fake_img, latents = generator(noise, return_latents=True)
+    #         if g_regularize:
+    #             path_batch_size = max(1, args.batch // args.path_batch_shrink)
+    #             noise = mixing_noise(path_batch_size, args.latent, args.mixing, device)
+    #             fake_img, latents = generator(noise, return_latents=True)
 
-                path_loss, mean_path_length, path_lengths = g_path_regularize(
-                    fake_img, latents, mean_path_length
-                )
+    #             path_loss, mean_path_length, path_lengths = g_path_regularize(
+    #                 fake_img, latents, mean_path_length
+    #             )
 
-                generator.zero_grad()
-                weighted_path_loss = args.path_regularize * args.g_reg_every * path_loss
+    #             generator.zero_grad()
+    #             weighted_path_loss = args.path_regularize * args.g_reg_every * path_loss
 
-                if args.path_batch_shrink:
-                    weighted_path_loss += 0 * fake_img[0, 0, 0, 0]
+    #             if args.path_batch_shrink:
+    #                 weighted_path_loss += 0 * fake_img[0, 0, 0, 0]
 
-                weighted_path_loss.backward()
+    #             weighted_path_loss.backward()
 
-                g_optim.step()
+    #             g_optim.step()
 
-                mean_path_length_avg = (
-                    reduce_sum(mean_path_length).item() / get_world_size()
-                )
+    #             mean_path_length_avg = (
+    #                 reduce_sum(mean_path_length).item() / get_world_size()
+    #             )
 
-            loss_dict["path"] = path_loss
-            loss_dict["path_length"] = path_lengths.mean()
+    #         loss_dict["path"] = path_loss
+    #         loss_dict["path_length"] = path_lengths.mean()
 
-            accumulate(g_ema, g_module, accum)
+    #         accumulate(g_ema, g_module, accum)
 
-            loss_reduced = reduce_loss_dict(loss_dict)
+    #         loss_reduced = reduce_loss_dict(loss_dict)
 
-            d_loss_val = loss_reduced["d"].mean().item()
-            g_loss_val = loss_reduced["g"].mean().item()
-            r1_val = loss_reduced["r1"].mean().item()
-            path_loss_val = loss_reduced["path"].mean().item()
-            real_score_val = loss_reduced["real_score"].mean().item()
-            fake_score_val = loss_reduced["fake_score"].mean().item()
-            path_length_val = loss_reduced["path_length"].mean().item()
+    #         d_loss_val = loss_reduced["d"].mean().item()
+    #         g_loss_val = loss_reduced["g"].mean().item()
+    #         r1_val = loss_reduced["r1"].mean().item()
+    #         path_loss_val = loss_reduced["path"].mean().item()
+    #         real_score_val = loss_reduced["real_score"].mean().item()
+    #         fake_score_val = loss_reduced["fake_score"].mean().item()
+    #         path_length_val = loss_reduced["path_length"].mean().item()
                 
-            if batch_idx % 100 == 0:
-                print(f"Epoch: {epoch+1}, Batch_Idx: {batch_idx}, Total_Iter: {i}, G_Loss: {g_loss_val:.4f}, D_Loss: {d_loss_val:.4f},\
-                    R1_Loss: {r1_val:.4f}, Path: {path_loss_val:.4f}, Mean_Path: {mean_path_length_avg:.4f}, Augment: {ada_aug_p:.4f}")
-                writer.add_scalar("d_loss_val", d_loss_val, i)
-                writer.add_scalar("g_loss_val", g_loss_val, i)
-                writer.add_scalar("r1_val", r1_val, i)
-                writer.add_scalar("path_loss_val", path_loss_val, i)
-                writer.add_scalar("real_score_val", real_score_val, i)
-                writer.add_scalar("fake_score_val", fake_score_val, i)
-                writer.add_scalar("path_length_val", path_length_val, i)
+    #         if batch_idx % 100 == 0:
+    #             print(f"Epoch: {epoch+1}, Batch_Idx: {batch_idx}, Total_Iter: {i}, G_Loss: {g_loss_val:.4f}, D_Loss: {d_loss_val:.4f},\
+    #                 R1_Loss: {r1_val:.4f}, Path: {path_loss_val:.4f}, Mean_Path: {mean_path_length_avg:.4f}, Augment: {ada_aug_p:.4f}")
+    #             writer.add_scalar("d_loss_val", d_loss_val, i)
+    #             writer.add_scalar("g_loss_val", g_loss_val, i)
+    #             writer.add_scalar("r1_val", r1_val, i)
+    #             writer.add_scalar("path_loss_val", path_loss_val, i)
+    #             writer.add_scalar("real_score_val", real_score_val, i)
+    #             writer.add_scalar("fake_score_val", fake_score_val, i)
+    #             writer.add_scalar("path_length_val", path_length_val, i)
                 
                 
-            if batch_idx % 1000 == 0:
-                g_ema.eval()
-                sample, _ = g_ema([sample_z])
-                utils.save_image(sample, os.path.join(_sample_path, f"e_{str(epoch).zfill(3)}_idx_{str(batch_idx).zfill(6)}.png") , nrow=int(args.n_sample ** 0.5), normalize=True, range=(-1, 1))
+    #         if batch_idx % 1000 == 0:
+    #             g_ema.eval()
+    #             sample, _ = g_ema([sample_z])
+    #             utils.save_image(sample, os.path.join(_sample_path, f"e_{str(epoch).zfill(3)}_idx_{str(batch_idx).zfill(6)}.png") , nrow=int(args.n_sample ** 0.5), normalize=True, range=(-1, 1))
             
-            if i % 10000 == 0:
-                torch.save(
-                    {
-                        "g": g_module.state_dict(),
-                        "d": d_module.state_dict(),
-                        "g_ema": g_ema.state_dict(),
-                        "g_optim": g_optim.state_dict(),
-                        "d_optim": d_optim.state_dict(),
-                        "args": args,
-                        "ada_aug_p": ada_aug_p,
-                    },
-                    os.path.join(_model_path, f"{str(epoch).zfill(3)}_{str(batch_idx).zfill(6)}.pt"),
-                )
+    #         if i % 10000 == 0:
+    #             torch.save(
+    #                 {
+    #                     "g": g_module.state_dict(),
+    #                     "d": d_module.state_dict(),
+    #                     "g_ema": g_ema.state_dict(),
+    #                     "g_optim": g_optim.state_dict(),
+    #                     "d_optim": d_optim.state_dict(),
+    #                     "args": args,
+    #                     "ada_aug_p": ada_aug_p,
+    #                 },
+    #                 os.path.join(_model_path, f"{str(epoch).zfill(3)}_{str(batch_idx).zfill(6)}.pt"),
+    #             )
                 
     
     
